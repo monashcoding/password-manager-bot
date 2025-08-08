@@ -27,12 +27,15 @@ async function getBitwardenToken(): Promise<string> {
 
   try {
     const response = await axios.post<BitwardenAuthResponse>(
-      'https://identity.bitwarden.com/connect/token',
+      `${config.bitwarden.baseUrl}/identity/connect/token`,
       new URLSearchParams({
         grant_type: 'client_credentials',
         scope: 'api.organization',
         client_id: config.bitwarden.clientId,
-        client_secret: config.bitwarden.clientSecret
+        client_secret: config.bitwarden.clientSecret,
+        device_identifier: 'discord-bot-' + Math.random().toString(36).substring(7),
+        device_type: '8', // API device type
+        device_name: 'Discord Password Manager Bot'
       }),
       {
         headers: {
@@ -78,16 +81,49 @@ export async function inviteUserToBitwarden(email: string, userInfo: UserInfo): 
 
     logger.info(`Sending Bitwarden invite for ${email} with payload:`, invitePayload);
 
-    const response = await axios.post(
-      `https://api.bitwarden.com/public/members`,
-      invitePayload,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+    // Try the official Bitwarden API endpoints in order of preference
+    const possibleEndpoints = [
+      `${config.bitwarden.baseUrl}/api/public/members`, // Official API
+      `${config.bitwarden.baseUrl}/public/members`,     // Alternative
+      `${config.bitwarden.baseUrl}/api/organizations/${config.bitwarden.orgId}/users/invite`, // From forum discussion
+      `${config.bitwarden.baseUrl}/api/members`,        // Simplified
+      `${config.bitwarden.baseUrl}/api/invite`          // Last resort
+    ];
+
+    let response;
+    let lastError;
+
+    for (const endpoint of possibleEndpoints) {
+      try {
+        logger.info(`Trying Bitwarden invite endpoint: ${endpoint}`);
+        
+        response = await axios.post(
+          endpoint,
+          invitePayload,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        );
+        
+        logger.info(`✅ SUCCESS with endpoint: ${endpoint}`);
+        break; // Success, exit loop
+        
+      } catch (error) {
+        lastError = error;
+        if (axios.isAxiosError(error)) {
+          logger.info(`❌ ${endpoint} failed: ${error.response?.status} ${error.response?.statusText}`);
         }
+        continue; // Try next endpoint
       }
-    );
+    }
+
+    if (!response) {
+      // All endpoints failed, throw the last error
+      throw lastError;
+    }
 
     logger.info(`Bitwarden invite successful for ${email}:`, response.data);
 
@@ -142,16 +178,38 @@ export async function getOrganizationMembers(): Promise<any[]> {
   try {
     const token = await getBitwardenToken();
 
-    const response = await axios.get(
-      `https://api.bitwarden.com/public/members`,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      }
-    );
+    // Try official API endpoints
+    const possibleEndpoints = [
+      `${config.bitwarden.baseUrl}/api/public/members`,
+      `${config.bitwarden.baseUrl}/public/members`,
+      `${config.bitwarden.baseUrl}/api/members`
+    ];
 
-    return response.data.data || [];
+    for (const endpoint of possibleEndpoints) {
+      try {
+        logger.info(`Trying to fetch members from: ${endpoint}`);
+        
+        const response = await axios.get(
+          endpoint,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+
+        logger.info(`✅ Successfully fetched members from: ${endpoint}`);
+        return response.data.data || response.data || [];
+        
+      } catch (error) {
+        if (axios.isAxiosError(error)) {
+          logger.info(`❌ ${endpoint} failed: ${error.response?.status} ${error.response?.statusText}`);
+        }
+        continue;
+      }
+    }
+
+    throw new Error('All member endpoints failed');
 
   } catch (error) {
     logger.error('Error fetching organization members:', error);
@@ -165,7 +223,7 @@ export async function confirmMember(memberId: string): Promise<boolean> {
     const token = await getBitwardenToken();
 
     await axios.post(
-      `https://api.bitwarden.com/public/members/${memberId}/confirm`,
+      `${config.bitwarden.baseUrl}/api/public/members/${memberId}/confirm`,
       {},
       {
         headers: {

@@ -11,6 +11,7 @@ export const config = {
     clientId: process.env.BITWARDEN_CLIENT_ID!,
     clientSecret: process.env.BITWARDEN_CLIENT_SECRET!,
     orgId: process.env.BITWARDEN_ORG_ID!,
+    baseUrl: process.env.BITWARDEN_BASE_URL || 'https://vault.monashcoding.com',
   },
   nodeEnv: process.env.NODE_ENV || 'development',
 };
@@ -22,8 +23,7 @@ const requiredEnvVars = [
   'NOTION_TOKEN',
   'NOTION_DATABASE_ID',
   'BITWARDEN_CLIENT_ID',
-  'BITWARDEN_CLIENT_SECRET',
-  'BITWARDEN_ORG_ID'
+  'BITWARDEN_CLIENT_SECRET'
 ];
 
 for (const envVar of requiredEnvVars) {

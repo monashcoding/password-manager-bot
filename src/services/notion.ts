@@ -15,7 +15,7 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
       `https://api.notion.com/v1/databases/${config.notion.databaseId}/query`,
       {
         filter: {
-          property: 'Personal Email', // Adjust this property name based on your Notion database
+          property: 'Personal Email', 
           email: {
             equals: personalEmail
           }
@@ -46,7 +46,7 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
       name: extractTextProperty(properties.Name || properties.name || properties['Full Name']),
       email: personalEmail,
       team: extractTextProperty(properties.Team || properties.team || properties.Department),
-      discordUsername: extractTextProperty(properties.Discord || properties.discord || properties['Discord Username'])
+      discordUsername: extractTextProperty(properties.Discord || properties.discord || properties['Discord Handle'])
     };
 
     // Validate that we got the required fields
@@ -89,8 +89,33 @@ function extractTextProperty(property: any): string {
     return property.select.name || '';
   }
   
+  // Handle multi-select (array of options) - THIS WAS MISSING!
+  if (property.multi_select && property.multi_select.length > 0) {
+    return property.multi_select.map((item: any) => item.name).join(', ');
+  }
+  
   if (property.email) {
     return property.email;
+  }
+  
+  // Handle people (user mentions)
+  if (property.people && property.people.length > 0) {
+    return property.people.map((person: any) => person.name || 'Unknown').join(', ');
+  }
+  
+  // Handle checkbox
+  if (property.checkbox !== undefined) {
+    return property.checkbox.toString();
+  }
+  
+  // Handle number
+  if (property.number !== null && property.number !== undefined) {
+    return property.number.toString();
+  }
+  
+  // Handle date
+  if (property.date) {
+    return property.date.start || '';
   }
   
   if (typeof property === 'string') {
