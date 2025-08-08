@@ -15,7 +15,7 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
       `https://api.notion.com/v1/databases/${config.notion.databaseId}/query`,
       {
         filter: {
-          property: 'Email', // Adjust this property name based on your Notion database
+          property: 'Personal Email', // Adjust this property name based on your Notion database
           email: {
             equals: personalEmail
           }
