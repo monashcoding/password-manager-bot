@@ -12,6 +12,7 @@ export const config = {
     clientSecret: process.env.BITWARDEN_CLIENT_SECRET!,
     orgId: process.env.BITWARDEN_ORG_ID!,
     baseUrl: process.env.BITWARDEN_BASE_URL || 'https://vault.monashcoding.com',
+    adminToken: process.env.VAULTWARDEN_ADMIN_TOKEN
   },
   nodeEnv: process.env.NODE_ENV || 'development',
 };

@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
 import { UserInfo } from './notion';
@@ -9,127 +9,128 @@ interface BitwardenInviteResult {
   inviteId?: string;
 }
 
-interface BitwardenAuthResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
+interface AdminAuthResponse {
+  message?: string;
+  status?: string;
 }
 
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
+interface InviteUserRequest {
+  email: string;
+}
 
-// Get OAuth access token for Bitwarden API
-async function getBitwardenToken(): Promise<string> {
-  // Return cached token if still valid
-  if (cachedToken && Date.now() < tokenExpiry) {
-    return cachedToken;
+let adminCookies: string[] = [];
+let cookieExpiry: number = 0;
+
+/**
+ * Authenticate with Vaultwarden admin panel to get JWT cookie
+ */
+async function getAdminCookies(): Promise<string[]> {
+  // Return cached cookies if still valid (admin session lasts 20 minutes by default)
+  if (adminCookies.length > 0 && Date.now() < cookieExpiry) {
+    return adminCookies;
+  }
+  
+  if (!config.bitwarden.adminToken) {
+    throw new Error('VAULTWARDEN_ADMIN_TOKEN not configured');
   }
 
   try {
-    const response = await axios.post<BitwardenAuthResponse>(
-      `${config.bitwarden.baseUrl}/identity/connect/token`,
+    logger.info('Authenticating with Vaultwarden admin panel...');
+    
+    // Step 1: POST to /admin with form data containing the admin token
+    const response: AxiosResponse<any> = await axios.post(
+      `${config.bitwarden.baseUrl}/admin`,
       new URLSearchParams({
-        grant_type: 'client_credentials',
-        scope: 'api.organization',
-        client_id: config.bitwarden.clientId,
-        client_secret: config.bitwarden.clientSecret,
-        device_identifier: 'discord-bot-' + Math.random().toString(36).substring(7),
-        device_type: '8', // API device type
-        device_name: 'Discord Password Manager Bot'
+        token: config.bitwarden.adminToken,
+        redirect: '' // Optional redirect after login
       }),
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        maxRedirects: 0, // Don't follow redirects
+        validateStatus: (status) => status < 400 // Accept 3xx redirects as success
       }
     );
 
-    cachedToken = response.data.access_token;
-    tokenExpiry = Date.now() + (response.data.expires_in * 1000) - 60000; // Expire 1 minute early for safety
+    // Extract Set-Cookie headers
+    const setCookieHeaders = response.headers['set-cookie'] || [];
+    
+    if (setCookieHeaders.length === 0) {
+      throw new Error('No cookies received from admin authentication');
+    }
 
-    logger.info('Successfully obtained Bitwarden access token');
-    return cachedToken;
+    // Store cookies and set expiry (admin sessions typically last 20 minutes)
+    adminCookies = setCookieHeaders;
+    cookieExpiry = Date.now() + (18 * 60 * 1000); // Expire 2 minutes early for safety
+
+    logger.info('✅ Admin authentication successful, cookies obtained');
+    return adminCookies;
 
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logger.error('Bitwarden auth error:', {
+      // 302 redirect is actually success for admin login
+      if (error.response?.status === 302) {
+        const setCookieHeaders = error.response.headers['set-cookie'] || [];
+        if (setCookieHeaders.length > 0) {
+          adminCookies = setCookieHeaders;
+          cookieExpiry = Date.now() + (18 * 60 * 1000);
+          logger.info('✅ Admin authentication successful (redirect), cookies obtained');
+          return adminCookies;
+        }
+      }
+      
+      logger.error('Admin authentication failed:', {
         status: error.response?.status,
         statusText: error.response?.statusText,
         data: error.response?.data
       });
     } else {
-      logger.error('Error getting Bitwarden token:', error);
+      logger.error('Error during admin authentication:', error);
     }
-    throw new Error('Failed to authenticate with Bitwarden API');
+    throw new Error('Failed to authenticate with Vaultwarden admin panel');
   }
 }
 
-// Invite user to Bitwarden organization
-export async function inviteUserToBitwarden(email: string, userInfo: UserInfo): Promise<BitwardenInviteResult> {
-  try {
-    const token = await getBitwardenToken();
+/**
+ * Parse cookie headers into a cookie string for requests
+ */
+function parseCookiesForRequest(cookieHeaders: string[]): string {
+  return cookieHeaders
+    .map(cookie => cookie.split(';')[0]) // Take only the name=value part
+    .join('; ');
+}
 
-    // Prepare invite payload
-    const invitePayload = {
-      emails: [email],
-      type: 2, // User type (2 = User, 1 = Admin, 0 = Owner)
-      accessAll: false, // Don't give access to all collections by default
-      resetPasswordEnrolled: false,
-      collections: [], // You can specify specific collections here if needed
-      groups: [] // You can specify groups here if needed
+/**
+ * Invite user to Vaultwarden instance using admin API
+ */
+export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo): Promise<BitwardenInviteResult> {
+  try {
+    const cookies = await getAdminCookies();
+    const cookieString = parseCookiesForRequest(cookies);
+
+    const invitePayload: InviteUserRequest = {
+      email: email
     };
 
-    logger.info(`Sending Bitwarden invite for ${email} with payload:`, invitePayload);
+    logger.info(`Sending Vaultwarden admin invite for ${email}`);
 
-    // Try the official Bitwarden API endpoints in order of preference
-    const possibleEndpoints = [
-      `${config.bitwarden.baseUrl}/api/public/members`, // Official API
-      `${config.bitwarden.baseUrl}/public/members`,     // Alternative
-      `${config.bitwarden.baseUrl}/api/organizations/${config.bitwarden.orgId}/users/invite`, // From forum discussion
-      `${config.bitwarden.baseUrl}/api/members`,        // Simplified
-      `${config.bitwarden.baseUrl}/api/invite`          // Last resort
-    ];
-
-    let response;
-    let lastError;
-
-    for (const endpoint of possibleEndpoints) {
-      try {
-        logger.info(`Trying Bitwarden invite endpoint: ${endpoint}`);
-        
-        response = await axios.post(
-          endpoint,
-          invitePayload,
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-        
-        logger.info(`✅ SUCCESS with endpoint: ${endpoint}`);
-        break; // Success, exit loop
-        
-      } catch (error) {
-        lastError = error;
-        if (axios.isAxiosError(error)) {
-          logger.info(`❌ ${endpoint} failed: ${error.response?.status} ${error.response?.statusText}`);
+    const response: AxiosResponse<any> = await axios.post(
+      `${config.bitwarden.baseUrl}/admin/invite`,
+      invitePayload,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cookie': cookieString
         }
-        continue; // Try next endpoint
       }
-    }
+    );
 
-    if (!response) {
-      // All endpoints failed, throw the last error
-      throw lastError;
-    }
-
-    logger.info(`Bitwarden invite successful for ${email}:`, response.data);
+    logger.info(`Vaultwarden admin invite successful for ${email}:`, response.data);
 
     return {
       success: true,
-      inviteId: response.data.id || 'unknown'
+      inviteId: response.data.Id || response.data.id || 'admin-invite'
     };
 
   } catch (error) {
@@ -139,27 +140,27 @@ export async function inviteUserToBitwarden(email: string, userInfo: UserInfo): 
       const status = error.response?.status;
       const errorData = error.response?.data;
 
-      logger.error(`Bitwarden invite error for ${email}:`, {
+      logger.error(`Vaultwarden admin invite error for ${email}:`, {
         status,
         statusText: error.response?.statusText,
         data: errorData
       });
 
-      // Handle specific error cases
-      if (status === 400) {
-        if (errorData?.message?.includes('already exists') || errorData?.message?.includes('already invited')) {
-          errorMessage = 'User is already invited or exists in the organization';
+      if (status === 401) {
+        // Clear cached cookies on auth failure
+        adminCookies = [];
+        cookieExpiry = 0;
+        errorMessage = 'Admin authentication failed - invalid token or expired session';
+      } else if (status === 400) {
+        if (errorData?.message?.includes('already') || errorData?.Message?.includes('already')) {
+          errorMessage = 'User already exists or is already invited';
         } else {
-          errorMessage = `Invalid request: ${errorData?.message || 'Bad request'}`;
+          errorMessage = `Invalid request: ${errorData?.message || errorData?.Message || 'Bad request'}`;
         }
-      } else if (status === 401) {
-        errorMessage = 'Authentication failed with Bitwarden API';
-      } else if (status === 403) {
-        errorMessage = 'Insufficient permissions to invite users';
-      } else if (status === 429) {
-        errorMessage = 'Rate limit exceeded, please try again later';
+      } else if (status === 409) {
+        errorMessage = 'User already exists in the system';
       } else {
-        errorMessage = `API error (${status}): ${errorData?.message || 'Unknown error'}`;
+        errorMessage = `Admin API error (${status}): ${errorData?.message || errorData?.Message || 'Unknown error'}`;
       }
     } else {
       logger.error(`Non-HTTP error inviting ${email}:`, error);
@@ -173,90 +174,86 @@ export async function inviteUserToBitwarden(email: string, userInfo: UserInfo): 
   }
 }
 
-// Get list of organization members (for the scheduled job)
-export async function getOrganizationMembers(): Promise<any[]> {
+/**
+ * Get list of all Vaultwarden users using admin API
+ */
+export async function getAllVaultwardenUsers(): Promise<any[]> {
   try {
-    const token = await getBitwardenToken();
+    const cookies = await getAdminCookies();
+    const cookieString = parseCookiesForRequest(cookies);
 
-    // Try official API endpoints
-    const possibleEndpoints = [
-      `${config.bitwarden.baseUrl}/api/public/members`,
-      `${config.bitwarden.baseUrl}/public/members`,
-      `${config.bitwarden.baseUrl}/api/members`
-    ];
-
-    for (const endpoint of possibleEndpoints) {
-      try {
-        logger.info(`Trying to fetch members from: ${endpoint}`);
-        
-        const response = await axios.get(
-          endpoint,
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          }
-        );
-
-        logger.info(`✅ Successfully fetched members from: ${endpoint}`);
-        return response.data.data || response.data || [];
-        
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          logger.info(`❌ ${endpoint} failed: ${error.response?.status} ${error.response?.statusText}`);
-        }
-        continue;
-      }
-    }
-
-    throw new Error('All member endpoints failed');
-
-  } catch (error) {
-    logger.error('Error fetching organization members:', error);
-    throw error;
-  }
-}
-
-// Confirm member (for the scheduled job)
-export async function confirmMember(memberId: string): Promise<boolean> {
-  try {
-    const token = await getBitwardenToken();
-
-    await axios.post(
-      `${config.bitwarden.baseUrl}/api/public/members/${memberId}/confirm`,
-      {},
+    const response: AxiosResponse<any[]> = await axios.get(
+      `${config.bitwarden.baseUrl}/admin/users`,
       {
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Cookie': cookieString
         }
       }
     );
 
-    logger.info(`Successfully confirmed member: ${memberId}`);
+    const users = response.data || [];
+    logger.info(`Successfully fetched ${users.length} Vaultwarden users`);
+    
+    return users;
+
+  } catch (error) {
+    logger.error('Error fetching Vaultwarden users:', error);
+    throw error;
+  }
+}
+
+/**
+ * Delete user from Vaultwarden using admin API
+ */
+export async function deleteVaultwardenUser(userUuid: string): Promise<boolean> {
+  try {
+    const cookies = await getAdminCookies();
+    const cookieString = parseCookiesForRequest(cookies);
+
+    await axios.post(
+      `${config.bitwarden.baseUrl}/admin/users/${userUuid}/delete`,
+      {},
+      {
+        headers: {
+          'Cookie': cookieString
+        }
+      }
+    );
+
+    logger.info(`Successfully deleted user: ${userUuid}`);
     return true;
 
   } catch (error) {
     if (axios.isAxiosError(error)) {
-      logger.error(`Error confirming member ${memberId}:`, {
+      logger.error(`Error deleting user ${userUuid}:`, {
         status: error.response?.status,
         data: error.response?.data
       });
     } else {
-      logger.error(`Error confirming member ${memberId}:`, error);
+      logger.error(`Error deleting user ${userUuid}:`, error);
     }
     return false;
   }
 }
 
-// Test Bitwarden API connection
-export async function testBitwardenConnection(): Promise<boolean> {
+/**
+ * Test Vaultwarden admin API connection
+ */
+export async function testVaultwardenAdminConnection(): Promise<boolean> {
   try {
-    await getBitwardenToken();
-    const members = await getOrganizationMembers();
-    logger.info(`Bitwarden connection successful. Found ${members.length} organization members.`);
+    await getAdminCookies();
+    const users = await getAllVaultwardenUsers();
+    
+    logger.info('Vaultwarden admin API connection successful!');
+    logger.info(`Found ${users.length} total users in the system`);
+    
     return true;
   } catch (error) {
-    logger.error('Bitwarden connection test failed:', error);
+    logger.error('Vaultwarden admin API connection test failed:', error);
     return false;
   }
 }
+
+// Alternative function names for clarity
+export const inviteUserToBitwarden = inviteUserToVaultwarden;
+export const testBitwardenConnection = testVaultwardenAdminConnection;
