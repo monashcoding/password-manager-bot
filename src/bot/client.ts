@@ -35,6 +35,7 @@ export class DiscordClient {
     // Setup event handlers
     this.setupEventHandlers();
     
+    console.log('Loading commands...');
     // Load commands
     this.loadCommands();
   }
@@ -116,8 +117,6 @@ export class DiscordClient {
     this.commands.set(requestVaultCommand.data.name, requestVaultCommand);
     logger.info(`✅ Loaded command: ${requestVaultCommand.data.name}`);
 
-    // Add more commands here as needed
-    // this.commands.set(anotherCommand.data.name, anotherCommand);
 
     logger.info(`📝 Total commands loaded: ${this.commands.size}`);
   }
@@ -134,7 +133,7 @@ export class DiscordClient {
       const rest = new REST({ version: '10' }).setToken(config.discord.token);
 
       await rest.put(
-        Routes.applicationCommands(config.discord.clientId),
+        Routes.applicationGuildCommands(config.discord.clientId, '1309055532404838430'),
         { body: commandsData }
       );
 

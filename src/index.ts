@@ -22,6 +22,7 @@ class PasswordManagerBot {
 
   constructor() {
     this.discordClient = new DiscordClient();
+    
     this.setupGracefulShutdown();
   }
 
@@ -107,53 +108,7 @@ class PasswordManagerBot {
       process.exit(1);
     }
   }
-
-  /**
-   * Get bot health status
-   */
-  public getHealthStatus(): {
-    status: 'healthy' | 'unhealthy';
-    uptime: number;
-    memory: NodeJS.MemoryUsage;
-    discord: any;
-  } {
-    const stats = this.discordClient.getStats();
-    
-    return {
-      status: stats.ready ? 'healthy' : 'unhealthy',
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      discord: stats
-    };
-  }
 }
-
-/**
- * Health check endpoint (for monitoring)
- */
-function setupHealthCheck(bot: PasswordManagerBot): void {
-  // Simple HTTP health check server (optional)
-  const http = require('http');
-  
-  const server = http.createServer((req: any, res: any) => {
-    if (req.url === '/health') {
-      const health = bot.getHealthStatus();
-      
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(health, null, 2));
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not Found');
-    }
-  });
-  
-  const port = process.env.HEALTH_CHECK_PORT || 3000;
-  server.listen(port, () => {
-    logger.info(`🏥 Health check server listening on port ${port}`);
-    logger.info(`   Health endpoint: http://localhost:${port}/health`);
-  });
-}
-
 /**
  * Main execution
  */
