@@ -134,7 +134,7 @@ export class DiscordClient {
       const rest = new REST({ version: '10' }).setToken(config.discord.token);
 
       await rest.put(
-        Routes.applicationCommands(config.discord.clientId),
+        Routes.applicationGuildCommands(config.discord.clientId, config.discord.guildId),
         { body: commandsData }
       );
 

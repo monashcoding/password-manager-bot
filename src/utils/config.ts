@@ -2,6 +2,7 @@ export const config = {
   discord: {
     token: process.env.DISCORD_TOKEN!,
     clientId: process.env.DISCORD_CLIENT_ID!,
+    guildId: process.env.DISCORD_GUILD_ID!,
   },
   notion: {
     token: process.env.NOTION_TOKEN!,
@@ -20,7 +21,8 @@ export const config = {
 // Validate required environment variables
 const requiredEnvVars = [
   'DISCORD_TOKEN',
-  'DISCORD_CLIENT_ID', 
+  'DISCORD_CLIENT_ID',
+  'DISCORD_GUILD_ID',
   'NOTION_TOKEN',
   'NOTION_DATABASE_ID',
   'BITWARDEN_CLIENT_ID',
