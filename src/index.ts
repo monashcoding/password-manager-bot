@@ -2,122 +2,45 @@ import 'dotenv/config';
 import { DiscordClient } from './bot/client';
 import { logger } from './utils/logger';
 
-// Global error handlers
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', error);
-  process.exit(1);
-});
-
-/**
- * Main application class
- */
 class PasswordManagerBot {
   private discordClient: DiscordClient;
-  private isShuttingDown: boolean = false;
 
   constructor() {
     this.discordClient = new DiscordClient();
-    
-    this.setupGracefulShutdown();
   }
 
-  /**
-   * Start the bot
-   */
   public async start(): Promise<void> {
     try {
-      logger.info('🚀 Starting Password Manager Discord Bot...');
-      logger.info('===============================================');
+      logger.info('Starting Password Manager Discord Bot...');
       
-      // Register slash commands with Discord
       await this.discordClient.registerCommands();
-      
-      // Login to Discord
       await this.discordClient.login();
       
-      logger.info('===============================================');
-      logger.info('✅ Password Manager Bot started successfully!');
-      logger.info('🔐 Ready to handle vault access requests');
+      logger.info('Password Manager Bot started successfully');
       
     } catch (error) {
-      logger.error('❌ Failed to start bot:', error);
-      process.exit(1);
-    }
-  }
-
-  /**
-   * Setup graceful shutdown handlers
-   */
-  private setupGracefulShutdown(): void {
-    const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
-    
-    signals.forEach((signal) => {
-      process.on(signal, async () => {
-        if (this.isShuttingDown) {
-          logger.warn(`⚠️  Received ${signal} again, forcing shutdown...`);
-          process.exit(1);
-        }
-        
-        this.isShuttingDown = true;
-        logger.info(`📡 Received ${signal}, starting graceful shutdown...`);
-        
-        await this.shutdown();
-      });
-    });
-  }
-
-  /**
-   * Gracefully shutdown the bot
-   */
-  public async shutdown(): Promise<void> {
-    try {
-      logger.info('🛑 Shutting down Password Manager Bot...');
-      
-      // Shutdown Discord client
-      await this.discordClient.shutdown();
-      
-      // Give some time for cleanup
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      logger.info('✅ Password Manager Bot shut down successfully');
-      process.exit(0);
-      
-    } catch (error) {
-      logger.error('❌ Error during shutdown:', error);
+      logger.error('Failed to start bot:', error);
       process.exit(1);
     }
   }
 }
-/**
- * Main execution
- */
+
 async function main(): Promise<void> {
   try {
-    logger.info('🎬 Initializing Password Manager Discord Bot');
-    
-    // Create bot instance
+    logger.info('Initializing Password Manager Discord Bot');
     const bot = new PasswordManagerBot();
-    
-    // Start the bot
     await bot.start();
-    
   } catch (error) {
-    logger.error('💥 Failed to initialize bot:', error);
+    logger.error('Failed to initialize bot:', error);
     process.exit(1);
   }
 }
 
-// Export bot class for testing
 export { PasswordManagerBot };
 
-// Start the bot if this file is run directly
 if (require.main === module) {
   main().catch((error) => {
-    logger.error('💥 Unhandled error in main:', error);
+    logger.error('Unhandled error in main:', error);
     process.exit(1);
   });
 }

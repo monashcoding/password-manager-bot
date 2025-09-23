@@ -69,22 +69,15 @@ const ROLE_TO_COLLECTIONS: Record<string, string[]> = {
   'default': ['40e34b51-e4ae-4d4d-9b0e-a1e2a4b700e8'], // All Teams collection as fallback
 };
 
-// Token cache
 let cachedToken: string | null = null;
 let tokenExpiry: number = 0;
 
-/**
- * Get access token using OAuth2 client credentials flow
- */
 async function getAccessToken(): Promise<string> {
-  // Return cached token if still valid (with 5 minute buffer)
   if (cachedToken && Date.now() < tokenExpiry - (5 * 60 * 1000)) {
     return cachedToken;
   }
 
   try {
-    logger.info('Fetching new Bitwarden access token...');
-
     const response = await axios.post<BitwardenTokenResponse>(
       `${config.bitwarden.baseUrl}/identity/connect/token`,
       new URLSearchParams({
@@ -107,7 +100,6 @@ async function getAccessToken(): Promise<string> {
     cachedToken = tokenData.access_token;
     tokenExpiry = Date.now() + (tokenData.expires_in * 1000);
 
-    logger.info('✅ Successfully obtained Bitwarden access token');
     return cachedToken!;
 
   } catch (error: any) {
@@ -124,11 +116,7 @@ async function getAccessToken(): Promise<string> {
   }
 }
 
-/**
- * Get collection IDs based on user team/role
- */
 function getCollectionsForRole(role: string): Array<{id: string, readOnly: boolean, hidePasswords: boolean, manage: boolean}> {
-  // Try exact match first, then fallback to default
   let collectionIds = ROLE_TO_COLLECTIONS[role] || ROLE_TO_COLLECTIONS[role.toLowerCase()] || ROLE_TO_COLLECTIONS['default'];
   
   if (!collectionIds) {
@@ -136,7 +124,11 @@ function getCollectionsForRole(role: string): Array<{id: string, readOnly: boole
     collectionIds = ROLE_TO_COLLECTIONS['default'];
   }
   
-  logger.info(`Mapping role "${role}" to collections: ${collectionIds.join(', ')}`);
+  // Always ensure the "All teams" collection is included for every user
+  const allTeamsCollectionId = ROLE_TO_COLLECTIONS['All Teams'][0];
+  if (!collectionIds.includes(allTeamsCollectionId)) {
+    collectionIds = [...collectionIds, allTeamsCollectionId];
+  }
   
   return collectionIds.map(id => ({
     id,
@@ -146,9 +138,6 @@ function getCollectionsForRole(role: string): Array<{id: string, readOnly: boole
   }));
 }
 
-/**
- * Invite user to Bitwarden organization using the new API
- */
 export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo): Promise<BitwardenInviteResult> {
   try {
     const accessToken = await getAccessToken();
@@ -156,7 +145,7 @@ export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo)
 
     const inviteData: BitwardenInviteRequest = {
       emails: [email],
-      type: 2, // User type
+      type: 2,
       collections,
       permissions: {},
       groups: [],
@@ -175,8 +164,6 @@ export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo)
         }
       }
     );
-
-    logger.info(`Bitwarden organization invite successful for ${email}:`, response.data);
 
     return {
       success: true,
@@ -197,7 +184,6 @@ export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo)
       });
 
       if (status === 401) {
-        // Clear cached token on auth failure
         cachedToken = null;
         tokenExpiry = 0;
         errorMessage = 'Authentication failed - invalid credentials or expired token';
@@ -224,14 +210,9 @@ export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo)
   }
 }
 
-/**
- * Get all organization users and find a user by email
- */
 export async function getUserByEmail(email: string): Promise<OrganizationUser | null> {
   try {
     const accessToken = await getAccessToken();
-
-    logger.info(`Looking up user with email: ${email}`);
 
     const response = await axios.get<OrganizationUsersResponse>(
       `${config.bitwarden.baseUrl}/api/organizations/${config.bitwarden.orgId}/users?includeCollections=true`,
@@ -247,12 +228,10 @@ export async function getUserByEmail(email: string): Promise<OrganizationUser | 
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
 
     if (user) {
-      logger.info(`Found user: ${user.name} (${user.email}) with ID: ${user.id} and userId: ${user.userId}`);
-      return user;
-    } else {
-      logger.info(`No user found with email: ${email}`);
-      return null;
+      logger.info(`Found user: ${user.name} (${user.email}) with ID: ${user.id}`);
     }
+
+    return user || null;
 
   } catch (error: any) {
     if (error.response) {
@@ -268,14 +247,9 @@ export async function getUserByEmail(email: string): Promise<OrganizationUser | 
   }
 }
 
-/**
- * Get a user's public key by their userId
- */
 export async function getUserPublicKey(userId: string): Promise<UserPublicKeyResponse | null> {
   try {
     const accessToken = await getAccessToken();
-
-    logger.info(`Getting public key for user ID: ${userId}`);
 
     const response = await axios.get<UserPublicKeyResponse>(
       `${config.bitwarden.baseUrl}/api/users/${userId}/public-key`,
@@ -287,7 +261,6 @@ export async function getUserPublicKey(userId: string): Promise<UserPublicKeyRes
       }
     );
 
-    logger.info(`Successfully retrieved public key for user: ${userId}`);
     return response.data;
 
   } catch (error: any) {
@@ -304,20 +277,14 @@ export async function getUserPublicKey(userId: string): Promise<UserPublicKeyRes
   }
 }
 
-/**
- * Confirm a user's membership in the organization
- */
 export async function confirmUserMembership(organizationUserId: string, userId: string): Promise<ConfirmUserResult> {
   try {
     const accessToken = await getAccessToken();
 
-    logger.info(`Confirming membership for organization user ID: ${organizationUserId} with userId: ${userId}`);
-
-    // Try with userId first (simpler approach)
     const response = await axios.post(
       `${config.bitwarden.baseUrl}/api/organizations/${config.bitwarden.orgId}/users/${organizationUserId}/confirm`,
       {
-        key: userId  // Try using userId as the key parameter
+        key: userId
       },
       {
         headers: {
@@ -331,7 +298,6 @@ export async function confirmUserMembership(organizationUserId: string, userId: 
       logger.info(`Successfully confirmed membership for user: ${organizationUserId}`);
       return { success: true };
     } else {
-      logger.warn(`Unexpected response status: ${response.status}`);
       return { success: false, error: `Unexpected response status: ${response.status}` };
     }
 
@@ -351,7 +317,6 @@ export async function confirmUserMembership(organizationUserId: string, userId: 
       if (status === 401) {
         errorMessage = 'Authentication failed - invalid credentials or expired token';
       } else if (status === 400) {
-        // If userId doesn't work, the error might indicate we need the public key instead
         if (errorData?.message?.includes('Key or UserId is not set') || 
             errorData?.errorModel?.message?.includes('Key or UserId is not set')) {
           errorMessage = 'Invalid key format - may need to use public key instead of userId';
@@ -373,12 +338,4 @@ export async function confirmUserMembership(organizationUserId: string, userId: 
       error: errorMessage
     };
   }
-}
-
-/**
- * Stub functions for backward compatibility - these admin functions are not available in the new API
- */
-export async function getAllVaultwardenUsers(): Promise<any[]> {
-  logger.warn('getAllVaultwardenUsers: Admin functions not available in new API implementation');
-  return [];
 }
