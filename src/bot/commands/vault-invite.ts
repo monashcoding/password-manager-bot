@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, GuildMember } from 'discord.js';
 import { lookupUserTeam, UserInfo } from '../../services/notion';
-import { inviteUserToVaultwarden, getUserByEmail, reinviteUser } from '../../services/bitwarden';
+import { inviteUserToVaultwarden, getUserByEmail, reinviteUser, getCollectionNamesForRole } from '../../services/bitwarden';
 import { logger } from '../../utils/logger';
 import { mapErrorToUserMessage, createErrorDescription } from '../../utils/errors';
 
@@ -70,7 +70,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     if (!userInfo) {
       const notFoundEmbed = new EmbedBuilder()
         .setTitle('Email Not Found')
-        .setDescription(`Email "${email}" not found in team directory. Check the email or contact the projects team for help.`)
+        .setDescription(`Email "${email}" not found in team directory. The email must match the personal email in the team directory.`)
         .setColor(0xFF6B35)
         .setTimestamp();
 
@@ -100,10 +100,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
         const reinviteResult = await reinviteUser(existingUser.id);
         
         if (reinviteResult.success) {
+          const collectionNames = getCollectionNamesForRole(userInfo.role || userInfo.team || 'default');
+          const collectionsText = collectionNames.length > 0 ? `${collectionNames.join(', ')}` : '';
+          
           const reinviteSuccessEmbed = new EmbedBuilder()
             .setTitle('Invitation Resent')
             .setDescription(
-              `Invitation resent to **${email}**.\n` +
+              `Invitation sent to **${email}** with access to: ${collectionsText}.\n\n` +
               `**Once you have created your account, you must run \`/confirm vault [email]\` to see the passwords!**`
             )
             .setColor(0x00B894)
@@ -137,10 +140,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     });
 
     if (inviteResult.success) {
+      const collectionNames = getCollectionNamesForRole(userInfo.role || userInfo.team || 'default');
+      const collectionsText = collectionNames.length > 0 ? `${collectionNames.join(', ')}` : '';
+      
       const successEmbed = new EmbedBuilder()
         .setTitle('Invitation Sent')
         .setDescription(
-          `Invitation sent to **${email}**.\n` +
+          `Invitation sent to **${email}** with access to: ${collectionsText}.\n\n` +
           `**Once you have created your account, you must run \`/confirm vault [email]\` to see the passwords!**`
         )
         .setColor(0x00B894)

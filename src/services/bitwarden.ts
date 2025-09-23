@@ -60,10 +60,11 @@ const ROLE_TO_COLLECTIONS: Record<string, string[]> = {
   // Individual team collections
   'Sponsorship': ['b4fde2ea-7a77-443f-89bb-ce34e3f702ec'],
   'Projects': ['a3cc60a8-5b19-4c15-89f7-9f41208d23ef'],
-  'Media': ['7bd95c76-98e3-406c-a4a1-405fd4373e90', 'f9e1baa2-e278-4d48-b9f2-363d54265b8f'], // Both Media collections
+  'Media': ['f9e1baa2-e278-4d48-b9f2-363d54265b8f'],
   'Management': ['e2e4647a-0601-4da9-b3ed-e42b6345b658'],
-  'HR': ['807c2b19-1f5a-4e73-b56e-df8d466b5766'],
+  'Human Resources': ['807c2b19-1f5a-4e73-b56e-df8d466b5766'],
   'Events': ['c62b2418-68bc-467f-a4e0-1b3436ca9b01'],
+  'Outreach': ['c62b2418-68bc-467f-a4e0-1b3436ca9b01'],
   'Design': ['ef8a1462-d62c-4071-9f08-aaafccc46a1a'],
   'Marketing': ['2d9d5027-1cff-40bd-90b5-1abb40b4f2cb'],
   
@@ -72,6 +73,19 @@ const ROLE_TO_COLLECTIONS: Record<string, string[]> = {
   
   // Fallback for unknown teams - gets basic access
   'default': ['40e34b51-e4ae-4d4d-9b0e-a1e2a4b700e8'], // All Teams collection as fallback
+};
+
+// Reverse mapping from collection ID to collection name
+const COLLECTION_ID_TO_NAME: Record<string, string> = {
+  'b4fde2ea-7a77-443f-89bb-ce34e3f702ec': 'Sponsorship',
+  'a3cc60a8-5b19-4c15-89f7-9f41208d23ef': 'Projects',
+  'f9e1baa2-e278-4d48-b9f2-363d54265b8f': 'Media',
+  'e2e4647a-0601-4da9-b3ed-e42b6345b658': 'Management',
+  '807c2b19-1f5a-4e73-b56e-df8d466b5766': 'Human Resources',
+  'c62b2418-68bc-467f-a4e0-1b3436ca9b01': 'Events',
+  'ef8a1462-d62c-4071-9f08-aaafccc46a1a': 'Design',
+  '2d9d5027-1cff-40bd-90b5-1abb40b4f2cb': 'Marketing',
+  '40e34b51-e4ae-4d4d-9b0e-a1e2a4b700e8': 'All Teams',
 };
 
 let cachedToken: string | null = null;
@@ -141,6 +155,29 @@ function getCollectionsForRole(role: string): Array<{id: string, readOnly: boole
     hidePasswords: false,
     manage: false
   }));
+}
+
+export function getCollectionNamesForRole(role: string): string[] {
+  let collectionIds = ROLE_TO_COLLECTIONS[role] || ROLE_TO_COLLECTIONS[role.toLowerCase()] || ROLE_TO_COLLECTIONS['default'];
+  
+  if (!collectionIds) {
+    logger.warn(`No collection mapping found for role: ${role}, using default`);
+    collectionIds = ROLE_TO_COLLECTIONS['default'];
+  }
+  
+  // Always ensure the "All teams" collection is included for every user
+  const allTeamsCollectionId = ROLE_TO_COLLECTIONS['All Teams'][0];
+  if (!collectionIds.includes(allTeamsCollectionId)) {
+    collectionIds = [...collectionIds, allTeamsCollectionId];
+  }
+  
+  // Map collection IDs to names and filter out any unknown collections
+  const collectionNames = collectionIds
+    .map(id => COLLECTION_ID_TO_NAME[id])
+    .filter(name => name !== undefined);
+  
+  // Remove duplicates (in case Media appears twice)
+  return Array.from(new Set(collectionNames));
 }
 
 export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo): Promise<BitwardenInviteResult> {
