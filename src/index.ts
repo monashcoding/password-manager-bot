@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { DiscordClient } from './bot/client';
 import { logger } from './utils/logger';
-import { config } from './utils/config';
 
 // Global error handlers
 process.on('unhandledRejection', (reason, promise) => {
@@ -34,9 +33,6 @@ class PasswordManagerBot {
       logger.info('🚀 Starting Password Manager Discord Bot...');
       logger.info('===============================================');
       
-      // Log configuration (without sensitive data)
-      this.logConfiguration();
-      
       // Register slash commands with Discord
       await this.discordClient.registerCommands();
       
@@ -51,19 +47,6 @@ class PasswordManagerBot {
       logger.error('❌ Failed to start bot:', error);
       process.exit(1);
     }
-  }
-
-  /**
-   * Log current configuration (without sensitive values)
-   */
-  private logConfiguration(): void {
-    logger.info('📋 Bot Configuration:');
-    logger.info(`   Discord Client ID: ${config.discord.clientId}`);
-    logger.info(`   Notion Database ID: ${config.notion.databaseId}`);
-    logger.info(`   Vaultwarden URL: ${config.bitwarden.baseUrl}`);
-    logger.info(`   Environment: ${config.nodeEnv}`);
-    logger.info(`   Node Version: ${process.version}`);
-    logger.info(`   Platform: ${process.platform}`);
   }
 
   /**
@@ -115,15 +98,9 @@ class PasswordManagerBot {
 async function main(): Promise<void> {
   try {
     logger.info('🎬 Initializing Password Manager Discord Bot');
-    logger.info(`📅 Started at: ${new Date().toISOString()}`);
     
     // Create bot instance
     const bot = new PasswordManagerBot();
-    
-    // Setup health check (optional, useful for production monitoring)
-    if (config.nodeEnv === 'production') {
-      setupHealthCheck(bot);
-    }
     
     // Start the bot
     await bot.start();

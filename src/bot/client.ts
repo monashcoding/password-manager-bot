@@ -1,11 +1,10 @@
 import { Client, Collection, GatewayIntentBits, Events, REST, Routes, TextChannel, NewsChannel, ThreadChannel, DMChannel } from 'discord.js';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
-import { testVaultwardenAdminConnection } from '../services/bitwarden';
-import { startScheduledJobs } from '../services/scheduler';
 
 // Import command modules
 import * as requestVaultCommand from './commands/request-vault';
+import * as confirmMembershipCommand from './commands/confirm-membership';
 
 export interface Command {
   data: any;
@@ -48,12 +47,6 @@ export class DiscordClient {
     this.client.once(Events.ClientReady, async (readyClient) => {
       logger.info(`✅ Discord bot logged in as ${readyClient.user.tag}`);
       logger.info(`🤖 Bot is in ${readyClient.guilds.cache.size} server(s)`);
-      
-      // Test Vaultwarden connection on startup
-      await this.testConnections();
-      
-      // Start scheduled jobs
-      this.startScheduledServices();
       
       this.isReady = true;
       logger.info('🚀 Discord bot is fully operational!');
@@ -117,6 +110,10 @@ export class DiscordClient {
     this.commands.set(requestVaultCommand.data.name, requestVaultCommand);
     logger.info(`✅ Loaded command: ${requestVaultCommand.data.name}`);
 
+    // Add the confirm-membership command
+    this.commands.set(confirmMembershipCommand.data.name, confirmMembershipCommand);
+    logger.info(`✅ Loaded command: ${confirmMembershipCommand.data.name}`);
+
 
     logger.info(`📝 Total commands loaded: ${this.commands.size}`);
   }
@@ -145,48 +142,6 @@ export class DiscordClient {
   }
 
   /**
-   * Test connections to external services
-   */
-  private async testConnections(): Promise<void> {
-    logger.info('🔍 Testing external service connections...');
-
-    // Test Vaultwarden Admin API
-    try {
-      const vaultwardenStatus = await testVaultwardenAdminConnection();
-      if (vaultwardenStatus) {
-        logger.info('✅ Vaultwarden Admin API connection successful');
-      } else {
-        logger.error('❌ Vaultwarden Admin API connection failed');
-      }
-    } catch (error) {
-      logger.error('❌ Error testing Vaultwarden connection:', error);
-    }
-
-    // Test Notion API (you can add this if you have a test function)
-    // try {
-    //   await testNotionConnection();
-    //   logger.info('✅ Notion API connection successful');
-    // } catch (error) {
-    //   logger.error('❌ Notion API connection failed:', error);
-    // }
-  }
-
-  /**
-   * Start scheduled services and background jobs
-   */
-  private startScheduledServices(): void {
-    logger.info('⏰ Starting scheduled services...');
-    
-    try {
-      // Start the scheduled jobs for Vaultwarden management
-      startScheduledJobs();
-      logger.info('✅ Scheduled jobs started successfully');
-    } catch (error) {
-      logger.error('❌ Failed to start scheduled jobs:', error);
-    }
-  }
-
-  /**
    * Login to Discord
    */
   public async login(): Promise<void> {
@@ -209,48 +164,5 @@ export class DiscordClient {
       await this.client.destroy();
       logger.info('✅ Discord bot shut down successfully');
     }
-  }
-
-  /**
-   * Get bot statistics
-   */
-  public getStats(): {
-    guilds: number;
-    users: number;
-    uptime: number;
-    ready: boolean;
-  } {
-    return {
-      guilds: this.client.guilds.cache.size,
-      users: this.client.users.cache.size,
-      uptime: this.client.uptime || 0,
-      ready: this.isReady
-    };
-  }
-
-  /**
-   * Send a message to a specific channel (for admin notifications)
-   */
-  public async sendAdminNotification(channelId: string, message: string): Promise<void> {
-    try {
-      const channel = await this.client.channels.fetch(channelId);
-      
-      // Type guard to check if channel supports sending messages
-      if (channel && this.isMessageableChannel(channel)) {
-        await channel.send(message);
-        logger.info(`📢 Admin notification sent to channel ${channelId}`);
-      } else {
-        logger.warn(`❌ Channel ${channelId} does not support sending messages`);
-      }
-    } catch (error) {
-      logger.error(`❌ Failed to send admin notification to ${channelId}:`, error);
-    }
-  }
-
-  /**
-   * Type guard to check if a channel can receive messages
-   */
-  private isMessageableChannel(channel: any): channel is TextChannel | NewsChannel | ThreadChannel | DMChannel {
-    return channel && typeof channel.send === 'function';
   }
 }

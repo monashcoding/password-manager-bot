@@ -33,15 +33,34 @@ export interface BitwardenMember {
 export interface BitwardenInviteRequest {
   emails: string[];
   type: number;
-  accessAll: boolean;
-  resetPasswordEnrolled: boolean;
-  collections: string[];
+  collections: Array<{
+    id: string;
+    readOnly: boolean;
+    hidePasswords: boolean;
+    manage: boolean;
+  }>;
+  permissions: {};
   groups: string[];
+  accessSecretsManager: boolean;
 }
 
 export interface BitwardenApiResponse<T = any> {
   data: T;
   continuationToken?: string;
+}
+
+export interface BitwardenTokenResponse {
+  Kdf: number;
+  KdfIterations: number;
+  KdfMemory: number | null;
+  KdfParallelism: number | null;
+  Key: string;
+  PrivateKey: string;
+  ResetMasterPassword: boolean;
+  access_token: string;
+  expires_in: number;
+  scope: string;
+  token_type: string;
 }
 
 // Application-specific types
@@ -70,9 +89,10 @@ export interface Config {
     databaseId: string;
   };
   bitwarden: {
-    clientId: string;
-    clientSecret: string;
+    userClientId: string;
+    userClientSecret: string;
     orgId: string;
+    baseUrl: string;
   };
   nodeEnv: string;
 }

@@ -8,11 +8,10 @@ export const config = {
     databaseId: process.env.NOTION_DATABASE_ID!,
   },
   bitwarden: {
-    clientId: process.env.BITWARDEN_CLIENT_ID!,
-    clientSecret: process.env.BITWARDEN_CLIENT_SECRET!,
+    userClientId: process.env.USER_CLIENT_ID!,
+    userClientSecret: process.env.USER_CLIENT_SECRET!,
     orgId: process.env.BITWARDEN_ORG_ID!,
     baseUrl: process.env.BITWARDEN_BASE_URL || 'https://vault.monashcoding.com',
-    adminToken: process.env.VAULTWARDEN_ADMIN_TOKEN
   },
   nodeEnv: process.env.NODE_ENV || 'development',
 };
@@ -23,8 +22,9 @@ const requiredEnvVars = [
   'DISCORD_CLIENT_ID', 
   'NOTION_TOKEN',
   'NOTION_DATABASE_ID',
-  'BITWARDEN_CLIENT_ID',
-  'BITWARDEN_CLIENT_SECRET'
+  'USER_CLIENT_ID',
+  'USER_CLIENT_SECRET',
+  'BITWARDEN_ORG_ID'
 ];
 
 for (const envVar of requiredEnvVars) {
