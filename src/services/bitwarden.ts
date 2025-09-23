@@ -50,6 +50,11 @@ interface ConfirmUserResult {
   error?: string;
 }
 
+interface ReinviteUserResult {
+  success: boolean;
+  error?: string;
+}
+
 // Team to collection ID mapping - Maps Notion team names to Bitwarden collection IDs
 const ROLE_TO_COLLECTIONS: Record<string, string[]> = {
   // Individual team collections
@@ -330,6 +335,62 @@ export async function confirmUserMembership(organizationUserId: string, userId: 
       }
     } else {
       logger.error(`Non-HTTP error confirming user ${organizationUserId}:`, error);
+      errorMessage = 'Network or system error occurred';
+    }
+
+    return {
+      success: false,
+      error: errorMessage
+    };
+  }
+}
+
+export async function reinviteUser(organizationUserId: string): Promise<ReinviteUserResult> {
+  try {
+    const accessToken = await getAccessToken();
+
+    const response = await axios.post(
+      `${config.bitwarden.baseUrl}/api/organizations/${config.bitwarden.orgId}/users/${organizationUserId}/reinvite`,
+      {}, // Empty body for reinvite
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (response.status === 200) {
+      logger.info(`Successfully resent invitation for user: ${organizationUserId}`);
+      return { success: true };
+    } else {
+      return { success: false, error: `Unexpected response status: ${response.status}` };
+    }
+
+  } catch (error: any) {
+    let errorMessage = 'Unknown error occurred';
+
+    if (error.response) {
+      const status = error.response.status;
+      const errorData = error.response.data;
+
+      logger.error(`Failed to reinvite user ${organizationUserId}:`, {
+        status,
+        statusText: error.response.statusText,
+        data: errorData
+      });
+
+      if (status === 401) {
+        errorMessage = 'Authentication failed - invalid credentials or expired token';
+      } else if (status === 404) {
+        errorMessage = 'User not found or cannot be reinvited';
+      } else if (status === 400) {
+        errorMessage = `Invalid request: ${errorData?.message || errorData?.errorModel?.message || errorData?.Message || 'Bad request'}`;
+      } else {
+        errorMessage = `API error (${status}): ${errorData?.message || errorData?.errorModel?.message || errorData?.Message || 'Unknown error'}`;
+      }
+    } else {
+      logger.error(`Non-HTTP error reinviting user ${organizationUserId}:`, error);
       errorMessage = 'Network or system error occurred';
     }
 

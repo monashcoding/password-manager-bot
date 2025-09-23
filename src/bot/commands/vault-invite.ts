@@ -1,11 +1,21 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, GuildMember } from 'discord.js';
 import { lookupUserTeam, UserInfo } from '../../services/notion';
-import { inviteUserToVaultwarden } from '../../services/bitwarden';
+import { inviteUserToVaultwarden, getUserByEmail, reinviteUser } from '../../services/bitwarden';
 import { logger } from '../../utils/logger';
 import { mapErrorToUserMessage, createErrorDescription } from '../../utils/errors';
 
 function isGuildMember(member: any): member is GuildMember {
   return member && typeof member === 'object' && 'displayName' in member;
+}
+
+function getStatusText(status: number): string {
+  switch (status) {
+    case 0: return 'Invited';
+    case 1: return 'Accepted';
+    case 2: return 'Confirmed';
+    case -1: return 'Revoked';
+    default: return 'Unknown';
+  }
 }
 
 export const data = new SlashCommandBuilder()
@@ -68,6 +78,59 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       return;
     }
 
+    // Check if user already exists in the organization
+    const existingUser = await getUserByEmail(email);
+    
+    if (existingUser) {
+      // User exists - check their status
+      if (existingUser.status === 2) {
+        // User is already confirmed
+        const alreadyConfirmedEmbed = new EmbedBuilder()
+          .setTitle('Already Confirmed')
+          .setDescription(`${existingUser.name} is already confirmed and can access the vault at [vault.monashcoding.com](https://vault.monashcoding.com).`)
+          .setColor(0x00B894)
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [alreadyConfirmedEmbed] });
+        return;
+      } else if (existingUser.status === 0 || existingUser.status === 1) {
+        // User is invited (status 0) or accepted (status 1) - resend invitation
+        logger.info(`User ${email} already exists with status ${existingUser.status}, resending invitation`);
+        
+        const reinviteResult = await reinviteUser(existingUser.id);
+        
+        if (reinviteResult.success) {
+          const reinviteSuccessEmbed = new EmbedBuilder()
+            .setTitle('Invitation Resent')
+            .setDescription(
+              `Invitation resent to **${email}**.\n` +
+              `**Once you have created your account, you must run \`/confirm vault [email]\` to see the passwords!**`
+            )
+            .setColor(0x00B894)
+            .setTimestamp();
+
+          await interaction.editReply({ embeds: [reinviteSuccessEmbed] });
+          logger.info(`Successfully resent invitation to ${email} (${existingUser.name})`);
+          return;
+        } else {
+          // Reinvite failed, show error
+          const errorMapping = mapErrorToUserMessage(reinviteResult.error || '');
+          const { title: errorTitle, description: errorDescription } = errorMapping;
+
+          const errorEmbed = new EmbedBuilder()
+            .setTitle(errorTitle)
+            .setDescription(errorDescription)
+            .setColor(0xFF0000)
+            .setTimestamp();
+
+          await interaction.editReply({ embeds: [errorEmbed] });
+          logger.error(`Failed to resend invitation to ${email}: ${reinviteResult.error}`);
+          return;
+        }
+      }
+    }
+
+    // User doesn't exist or has an unexpected status - send new invitation
     const inviteResult = await inviteUserToVaultwarden(email, {
       ...userInfo,
       discordUsername
@@ -88,13 +151,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
 
     } else {
       const errorMapping = mapErrorToUserMessage(inviteResult.error || '');
-      let { title: errorTitle, description: errorDescription } = errorMapping;
-
-      // Special case for invitation errors that mention "already" - provide helpful context
-      if (errorDescription.toLowerCase().includes('already') || errorDescription.toLowerCase().includes('exists')) {
-        errorTitle = 'Already Invited';
-        errorDescription = `${email} is already invited or exists in the system. Check email or visit [vault.monashcoding.com](https://vault.monashcoding.com).`;
-      }
+      const { title: errorTitle, description: errorDescription } = errorMapping;
 
       const errorEmbed = new EmbedBuilder()
         .setTitle(errorTitle)
