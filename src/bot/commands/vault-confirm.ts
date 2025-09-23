@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, GuildMember } from 'discord.js';
 import { getUserByEmail, confirmUserMembership } from '../../services/bitwarden';
 import { logger } from '../../utils/logger';
+import { mapErrorToUserMessage, createErrorDescription } from '../../utils/errors';
 
 function isGuildMember(member: any): member is GuildMember {
   return member && typeof member === 'object' && 'displayName' in member;
@@ -91,13 +92,8 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       logger.info(`Successfully confirmed membership for ${email} (${user.name}) by admin ${adminUsername}`);
 
     } else {
-      let errorTitle = 'Confirmation Failed';
-      let errorDescription = 'Something went wrong. Contact the projects team for help.';
-
-      if (confirmResult.error?.includes('already confirmed') || confirmResult.error?.includes('404')) {
-        errorTitle = 'Already Confirmed';
-        errorDescription = 'User might already be confirmed. Contact the projects team for help.';
-      }
+      const errorMapping = mapErrorToUserMessage(confirmResult.error || '');
+      let { title: errorTitle, description: errorDescription } = errorMapping;
 
       const errorEmbed = new EmbedBuilder()
         .setTitle(errorTitle)
@@ -112,9 +108,11 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   } catch (error) {
     logger.error('Error in confirm membership command:', error);
 
+    const errorDescription = createErrorDescription(error);
+
     const crashEmbed = new EmbedBuilder()
       .setTitle('Something Went Wrong')
-      .setDescription('An unexpected error occurred. Contact the projects team for help.')
+      .setDescription(errorDescription)
       .setColor(0xFF0000)
       .setTimestamp();
 

@@ -1,6 +1,7 @@
-import { Client, Collection, GatewayIntentBits, Events, REST, Routes, TextChannel, NewsChannel, ThreadChannel, DMChannel } from 'discord.js';
+import { Client, Collection, GatewayIntentBits, Events, REST, Routes, TextChannel, NewsChannel, ThreadChannel, DMChannel, EmbedBuilder } from 'discord.js';
 import { config } from '../utils/config';
 import { logger } from '../utils/logger';
+import { createErrorDescription, createErrorTitle } from '../utils/errors';
 
 // Import command modules
 import * as inviteCommand from './commands/vault-invite';
@@ -48,12 +49,34 @@ export class DiscordClient {
       } catch (error) {
         logger.error(`Error executing command ${interaction.commandName}:`, error);
         
-        const errorMessage = 'There was an error while executing this command!';
+        const errorTitle = createErrorTitle(error);
+        const errorDescription = createErrorDescription(error);
+
+        const errorEmbed = new EmbedBuilder()
+          .setTitle(errorTitle)
+          .setDescription(errorDescription)
+          .setColor(0xFF0000)
+          .setTimestamp();
         
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp({ content: errorMessage, ephemeral: true });
-        } else {
-          await interaction.reply({ content: errorMessage, ephemeral: true });
+        try {
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+          } else {
+            await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+          }
+        } catch (replyError) {
+          logger.error('Failed to send error message to user:', replyError);
+          // Fallback to simple text message if embed fails
+          try {
+            const fallbackMessage = `Error: ${errorDescription}`;
+            if (interaction.replied || interaction.deferred) {
+              await interaction.followUp({ content: fallbackMessage, ephemeral: true });
+            } else {
+              await interaction.reply({ content: fallbackMessage, ephemeral: true });
+            }
+          } catch (finalError) {
+            logger.error('Failed to send fallback error message:', finalError);
+          }
         }
       }
     });

@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, GuildMe
 import { lookupUserTeam, UserInfo } from '../../services/notion';
 import { inviteUserToVaultwarden } from '../../services/bitwarden';
 import { logger } from '../../utils/logger';
+import { mapErrorToUserMessage, createErrorDescription } from '../../utils/errors';
 
 function isGuildMember(member: any): member is GuildMember {
   return member && typeof member === 'object' && 'displayName' in member;
@@ -75,7 +76,10 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     if (inviteResult.success) {
       const successEmbed = new EmbedBuilder()
         .setTitle('Invitation Sent')
-        .setDescription(`Invitation sent to ${email}. Check email and visit [vault.monashcoding.com](https://vault.monashcoding.com) to complete setup.`)
+        .setDescription(
+          `Invitation sent to **${email}**.\n` +
+          `**Once you have created your account, you must run \`/confirm vault [email]\` to see the passwords!**`
+        )
         .setColor(0x00B894)
         .setTimestamp();
 
@@ -83,12 +87,13 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       logger.info(`Successfully invited ${email} (${userInfo.name} from ${userInfo.team})`);
 
     } else {
-      let errorTitle = 'Invitation Failed';
-      let errorDescription = 'Something went wrong. Contact the projects team for help.';
+      const errorMapping = mapErrorToUserMessage(inviteResult.error || '');
+      let { title: errorTitle, description: errorDescription } = errorMapping;
 
-      if (inviteResult.error?.includes('already')) {
+      // Special case for invitation errors that mention "already" - provide helpful context
+      if (errorDescription.toLowerCase().includes('already') || errorDescription.toLowerCase().includes('exists')) {
         errorTitle = 'Already Invited';
-        errorDescription = `${email} already invited. Check email or visit [vault.monashcoding.com](https://vault.monashcoding.com).`;
+        errorDescription = `${email} is already invited or exists in the system. Check email or visit [vault.monashcoding.com](https://vault.monashcoding.com).`;
       }
 
       const errorEmbed = new EmbedBuilder()
@@ -104,9 +109,11 @@ export async function execute(interaction: ChatInputCommandInteraction) {
   } catch (error) {
     logger.error('Error in request-vault command:', error);
 
+    const errorDescription = createErrorDescription(error);
+
     const crashEmbed = new EmbedBuilder()
       .setTitle('Something Went Wrong')
-      .setDescription('An unexpected error occurred. Contact the projects team for help.')
+      .setDescription(errorDescription)
       .setColor(0xFF0000)
       .setTimestamp();
 
