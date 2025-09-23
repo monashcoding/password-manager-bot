@@ -6,6 +6,7 @@ export interface UserInfo {
   name: string;
   email: string;
   team: string;
+  role?: string;
   discordUsername?: string;
 }
 
@@ -30,7 +31,7 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
       }
     );
 
-    const results = response.data.results;
+    const results = (response.data as any).results;
     
     if (!results || results.length === 0) {
       logger.info(`No user found for email: ${personalEmail}`);
@@ -46,6 +47,7 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
       name: extractTextProperty(properties.Name || properties.name || properties['Full Name']),
       email: personalEmail,
       team: extractTextProperty(properties.Team || properties.team || properties.Department),
+      role: extractTextProperty(properties.Team || properties.team || properties.Department), // Use team as role for collection mapping
       discordUsername: extractTextProperty(properties.Discord || properties.discord || properties['Discord Handle'])
     };
 
@@ -57,12 +59,12 @@ export async function lookupUserTeam(personalEmail: string): Promise<UserInfo | 
 
     return userInfo;
 
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
+  } catch (error: any) {
+    if (error.response) {
       logger.error(`Notion API error for ${personalEmail}:`, {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
       });
     } else {
       logger.error(`Error looking up user ${personalEmail}:`, error);
@@ -123,25 +125,4 @@ function extractTextProperty(property: any): string {
   }
   
   return '';
-}
-
-// Function to test the Notion connection (useful for debugging)
-export async function testNotionConnection(): Promise<boolean> {
-  try {
-    const response = await axios.get(
-      `https://api.notion.com/v1/databases/${config.notion.databaseId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${config.notion.token}`,
-          'Notion-Version': '2022-06-28'
-        }
-      }
-    );
-    
-    logger.info('Notion connection successful:', response.data.title);
-    return true;
-  } catch (error) {
-    logger.error('Notion connection failed:', error);
-    return false;
-  }
 }
