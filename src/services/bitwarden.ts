@@ -136,20 +136,38 @@ async function getAccessToken(): Promise<string> {
 }
 
 function getCollectionsForRole(role: string): Array<{id: string, readOnly: boolean, hidePasswords: boolean, manage: boolean}> {
-  let collectionIds = ROLE_TO_COLLECTIONS[role] || ROLE_TO_COLLECTIONS[role.toLowerCase()] || ROLE_TO_COLLECTIONS['default'];
+  // Handle multiple teams separated by commas
+  const teams = role.split(',').map(team => team.trim()).filter(team => team.length > 0);
+  const allCollectionIds = new Set<string>();
   
-  if (!collectionIds) {
-    logger.warn(`No collection mapping found for role: ${role}, using default`);
-    collectionIds = ROLE_TO_COLLECTIONS['default'];
+  logger.info(`Processing collections for teams: ${teams.join(', ')}`);
+  
+  // Add collections for each team
+  for (const team of teams) {
+    const teamCollections = ROLE_TO_COLLECTIONS[team] || ROLE_TO_COLLECTIONS[team.toLowerCase()];
+    if (teamCollections) {
+      logger.info(`Found ${teamCollections.length} collection(s) for team: ${team}`);
+      teamCollections.forEach(id => allCollectionIds.add(id));
+    } else {
+      logger.warn(`No collection mapping found for team: ${team}`);
+    }
+  }
+  
+  // If no collections found for any team, use default
+  if (allCollectionIds.size === 0) {
+    logger.warn(`No collections found for any teams in: ${role}, using default`);
+    const defaultCollections = ROLE_TO_COLLECTIONS['default'];
+    defaultCollections.forEach(id => allCollectionIds.add(id));
   }
   
   // Always ensure the "All teams" collection is included for every user
   const allTeamsCollectionId = ROLE_TO_COLLECTIONS['All Teams'][0];
-  if (!collectionIds.includes(allTeamsCollectionId)) {
-    collectionIds = [...collectionIds, allTeamsCollectionId];
-  }
+  allCollectionIds.add(allTeamsCollectionId);
   
-  return collectionIds.map(id => ({
+  const finalCollections = Array.from(allCollectionIds);
+  logger.info(`Final collections assigned: ${finalCollections.length} collection(s)`);
+  
+  return finalCollections.map(id => ({
     id,
     readOnly: true,
     hidePasswords: false,
@@ -158,26 +176,31 @@ function getCollectionsForRole(role: string): Array<{id: string, readOnly: boole
 }
 
 export function getCollectionNamesForRole(role: string): string[] {
-  let collectionIds = ROLE_TO_COLLECTIONS[role] || ROLE_TO_COLLECTIONS[role.toLowerCase()] || ROLE_TO_COLLECTIONS['default'];
+  // Handle multiple teams separated by commas
+  const teams = role.split(',').map(team => team.trim()).filter(team => team.length > 0);
+  const allCollectionIds = new Set<string>();
   
-  if (!collectionIds) {
-    logger.warn(`No collection mapping found for role: ${role}, using default`);
-    collectionIds = ROLE_TO_COLLECTIONS['default'];
+  // Add collections for each team
+  for (const team of teams) {
+    const teamCollections = ROLE_TO_COLLECTIONS[team] || ROLE_TO_COLLECTIONS[team.toLowerCase()];
+    if (teamCollections) {
+      teamCollections.forEach(id => allCollectionIds.add(id));
+    } else {
+      logger.warn(`No collection mapping found for team: ${team}`);
+    }
   }
   
   // Always ensure the "All teams" collection is included for every user
   const allTeamsCollectionId = ROLE_TO_COLLECTIONS['All Teams'][0];
-  if (!collectionIds.includes(allTeamsCollectionId)) {
-    collectionIds = [...collectionIds, allTeamsCollectionId];
-  }
+  allCollectionIds.add(allTeamsCollectionId);
   
   // Map collection IDs to names and filter out any unknown collections
-  const collectionNames = collectionIds
+  const collectionNames = Array.from(allCollectionIds)
     .map(id => COLLECTION_ID_TO_NAME[id])
     .filter(name => name !== undefined);
   
-  // Remove duplicates (in case Media appears twice)
-  return Array.from(new Set(collectionNames));
+  // Remove duplicates and sort for consistent output
+  return Array.from(new Set(collectionNames)).sort();
 }
 
 export async function inviteUserToVaultwarden(email: string, userInfo: UserInfo): Promise<BitwardenInviteResult> {
